@@ -99,6 +99,7 @@ def extract_experiments_mp(paths, names):
     import multiprocessing as mp
     pool = mp.Pool()
     pool.starmap(extract_experiment, zip(paths, names))
+    pool.join()
 
 if __name__ == "__main__":
     dir_path = "/home/velythyl/Desktop/diayn-coop-ued/tb_extract"
