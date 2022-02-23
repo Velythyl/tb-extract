@@ -90,6 +90,7 @@ def extract_experiment(path, name):
     out_path = f"./out/{name}"
     save_df_and_split_to_disk(df, splitted, out_path, lambda x, p: x.to_csv(p + '/out.csv'))
     save_df_and_split_to_disk(df, splitted, out_path, lambda x, p: x.to_pickle(p + '/out.pkl'))
+    return None
 
 def extract_experiments(paths, names):
     for path, name in tqdm(zip(paths, names)):
@@ -99,6 +100,7 @@ def extract_experiments_mp(paths, names):
     import multiprocessing as mp
     pool = mp.Pool()
     pool.starmap(extract_experiment, zip(paths, names))
+    pool.close()
     pool.join()
 
 if __name__ == "__main__":
