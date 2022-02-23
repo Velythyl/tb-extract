@@ -93,8 +93,3 @@ if __name__ == "__main__":
                 os.makedirs(splitted_path)
                 splitted[key][subkey].to_csv(splitted_path+"/out.csv")
         df.to_csv(f"{out_path}/out.csv")
-
-        print(df.head())
-        exit()
-
-        i=0
