@@ -1,6 +1,7 @@
 # inspired by https://laszukdawid.com/blog/2021/01/26/parsing-tensorboard-data-locally/
 
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import pandas as pd
 from tensorflow.python.summary.summary_iterator import summary_iterator
 from tqdm import tqdm
@@ -72,6 +73,32 @@ def split_tbdf_by_expname(df):
         splits_by_identifier[identifier][plot_name] = named_df
     return splits_by_identifier
 
+def save_df_and_split_to_disk(df, splitted, out_path, actor):
+
+    for key in splitted:
+        for subkey in splitted[key]:
+            splitted_path = f"{out_path}/{key}/{subkey}"
+            os.makedirs(splitted_path, exist_ok=True)
+            sub_df = splitted[key][subkey]
+            actor(sub_df, splitted_path)
+    actor(df, out_path)
+
+def extract_experiment(path, name):
+    df = convert_tb_data(path, sort_by='step')
+    splitted = split_tbdf_by_expname(df)
+
+    out_path = f"./out/{name}"
+    save_df_and_split_to_disk(df, splitted, out_path, lambda x, p: x.to_csv(p + '/out.csv'))
+    save_df_and_split_to_disk(df, splitted, out_path, lambda x, p: x.to_pickle(p + '/out.pkl'))
+
+def extract_experiments(paths, names):
+    for path, name in tqdm(zip(paths, names)):
+        extract_experiment(path, name)
+
+def extract_experiments_mp(paths, names):
+    import multiprocessing as mp
+    pool = mp.Pool()
+    pool.starmap(extract_experiment, zip(paths, names))
 
 if __name__ == "__main__":
     dir_path = "/home/velythyl/Desktop/diayn-coop-ued/tb_extract"
@@ -79,17 +106,7 @@ if __name__ == "__main__":
     experiments_names = os.listdir(dir_path)
     experiment_paths = map(lambda x: f"{dir_path}/{x}", experiments_names)
     experiment_paths = filter(lambda x: os.path.isdir(x), experiment_paths)
-    final_experiment_names = map(lambda x: x[len(dir_path):], experiment_paths)
+    final_experiment_names = map(lambda x: x[len(dir_path)+1:], experiment_paths)
 
-    for path, name in tqdm(zip(experiment_paths, final_experiment_names)):
-        df = convert_tb_data(path, sort_by='step')
-        splitted = split_tbdf_by_expname(df)
-
-        out_path = f"./out/{name}"
-
-        for key in splitted:
-            for subkey in splitted[key]:
-                splitted_path = f"{out_path}/{key}/{subkey}"
-                os.makedirs(splitted_path)
-                splitted[key][subkey].to_csv(splitted_path+"/out.csv")
-        df.to_csv(f"{out_path}/out.csv")
+    extract_experiments_mp(experiment_paths, final_experiment_names)
+    print("DONE!")
