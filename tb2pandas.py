@@ -99,7 +99,7 @@ def extract_experiments(paths, names):
 def extract_experiments_mp(paths, names):
     import multiprocessing as mp
     pool = mp.Pool()
-    pool.starmap(extract_experiment, zip(paths, names))
+    result = pool.starmap(extract_experiment, zip(paths, names))
     pool.close()
     pool.join()
 
@@ -108,8 +108,10 @@ if __name__ == "__main__":
 
     experiments_names = os.listdir(dir_path)
     experiment_paths = map(lambda x: f"{dir_path}/{x}", experiments_names)
-    experiment_paths = filter(lambda x: os.path.isdir(x), experiment_paths)
-    final_experiment_names = map(lambda x: x[len(dir_path)+1:], experiment_paths)
+    experiment_paths = list(filter(lambda x: os.path.isdir(x), experiment_paths))
+    final_experiment_names = list(map(lambda x: x[len(dir_path)+1:], experiment_paths))
+
+    # python is idiotic and doesnt block if the args to starmap are filter or map results.......
 
     extract_experiments_mp(experiment_paths, final_experiment_names)
     print("DONE!")
