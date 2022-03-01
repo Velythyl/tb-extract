@@ -37,6 +37,12 @@ def do_csv(path, csv_paths, num_runs):
                     else:
                         acc.append(run.ewm(alpha=(1-smoothing)).mean()['value'])
 
+                min_len = min(map(len, acc))
+                acc = list(map(lambda ac: ac[:min_len], acc))
+
+                if min_len > 35:
+                    x_values = np.arange(min_len) * (3000000 // min_len)
+
                 acc = [ac.to_numpy() for ac in acc]
                 acc = np.array(acc).astype(float)
                 y_values = acc.mean(axis=0)
@@ -55,6 +61,8 @@ def do_csv(path, csv_paths, num_runs):
             csv_dict[csv] = x_y_e
 
         except ValueError as e:
+            print(csv)
+            raise e
             if 'setting an array element with a sequence' in e.args[0]:
                 assert "teacher" or "last_step" in csv.lower()
             else:
@@ -66,17 +74,27 @@ def do_csv(path, csv_paths, num_runs):
 def do_finish_plot(fig, csv_name, exp_name, smoothing_id):
     plt.xlabel("Timestep")
 
-    plot_name, y_axis_name = csv_name.replace("Eval_", "").replace("MultiGrid-", "").replace("-Minigrid",
-                                                                                             "").replace("-v0",
-                                                                                                         "").replace("/out.csv", "").split(
-        "/")
+    if "Eval_" in csv_name:
+        plot_name, y_axis_name = csv_name.replace("Eval_", "").replace("MultiGrid-", "").replace("-Minigrid",
+                                                                                                 "").replace("-v0",
+                                                                                                             "").replace("/out.csv", "").split(
+            "/")
+    elif "teacher-learner" in csv_name:
+        print(csv_name)
+        y_axis_name = csv_name.replace("teacher-learner_", "").replace("/Teacher/", "").replace("_", " ").replace("/out.csv", "")
+        plot_name = y_axis_name
+    else:
+        plot_name = csv_name
+        y_axis_name = plot_name
+    plot_name = plot_name.title()
 
     plt.title(plot_name)
 
     y_axis_name = {
         "solved_rate": "Solve Rate",
         "median": "Median",
-        "min": "Min"
+        "min": "Min",
+        "shortestpathlength": "Shortest Path Length"
     }.get(y_axis_name, y_axis_name)
 
     plt.ylabel(y_axis_name)
@@ -96,6 +114,7 @@ def do_finish_plot(fig, csv_name, exp_name, smoothing_id):
     os.makedirs(exp_name, exist_ok=True)
 
     plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.png", dpi=fig.dpi)
+    plt.close(fig)
 
 def just_one_plot(data, exp_name):
     x_values, y_values, y_errors, csv_name = data
@@ -108,15 +127,16 @@ def just_one_plot(data, exp_name):
 
     ax = sns.lineplot(x=x_values, y=y_values, label=line_label)
 
-    x_ticks = x_values[1::2]
+    x_ticks = ((1+np.arange(30)) * 100000)[1::2]
     x_labels = list(map(lambda x: f"{str(x / 1000000)[:3]}M", x_ticks))
 
     #plt.locator_params(axis='y', nbins=10)
 
-    y_ticks = np.arange(11) / 10
-    ax.set_yticks(y_ticks, y_ticks)
+    if "solve" in exp_name:
+        ax.set_ylim([0, 1.1])
+        y_ticks = np.arange(11) / 10
+        ax.set_yticks(y_ticks, y_ticks)
     ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor")
-    ax.set_ylim([0, 1.1])
     # ax.set_xticklabels(list(map(str, x_values)))
     ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.5)
 
@@ -124,9 +144,14 @@ def just_one_plot(data, exp_name):
 def plot(data, keys, names):
     # solo plots
 
+
     for key in keys:
-        #if "Eval" and "solve" not in key:
-        #    continue
+
+        if "solve" in key or "path" in key:
+            pass
+        else:
+            continue
+
         #try:
         for smoothing_id in range(len(SMOOTHINGS)):
             fig = plt.figure(figsize=(6,6))
