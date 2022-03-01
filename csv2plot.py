@@ -132,10 +132,14 @@ def just_one_plot(data, exp_name):
 
     #plt.locator_params(axis='y', nbins=10)
 
-    if "solve" in exp_name:
+    if "solve" in csv_name:
         ax.set_ylim([0, 1.1])
         y_ticks = np.arange(11) / 10
         ax.set_yticks(y_ticks, y_ticks)
+    #elif "path" in csv_name:
+    #    ax.set_ylim([10, 40])
+    #    y_ticks = np.arange(7) * 5 + 10
+    #    ax.set_yticks(y_ticks, y_ticks)
     ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor")
     # ax.set_xticklabels(list(map(str, x_values)))
     ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.5)
@@ -148,6 +152,11 @@ def plot(data, keys, names):
     for key in keys:
 
         if "solve" in key or "path" in key:
+            pass
+        else:
+            continue
+
+        if "Eval" in key or "teacher-learner" in key:
             pass
         else:
             continue
@@ -233,7 +242,7 @@ def do_mp(pair, csv_paths):
 
 
 if __name__ == "__main__":
-    path = "/home/velythyl/Desktop/tb-extract/out_temp"
+    path = "/home/velythyl/Desktop/tb-extract/out"
 
     sns.set()
     sns.set_palette("colorblind")
