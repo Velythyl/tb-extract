@@ -51,10 +51,9 @@ def do_csv(path, csv_paths, num_runs):
                 if DEBUG:
                     if "solve" not in csv:
                         continue
-                    fig, axes = plt.figure(figsize=(6,6))
-                    just_one_plot(axes=axes, data=(x_values, y_values, y_errors, name), exp_name=path, subplot_y=0, subplot_x=0)
+                    fig, axes =init_plot(True)
+                    just_one_plot(ax=axes[0,0], data=(x_values, y_values, y_errors, name), exp_name=path)
                     do_finish_plot(fig=fig, csv_name=csv, exp_name=path, smoothing_id=smoothing)
-                    plt.show()
                     exit()
 
                 x_y_e.append((x_values, y_values, y_errors, name))
@@ -71,52 +70,97 @@ def do_csv(path, csv_paths, num_runs):
 
     return csv_dict
 
-def do_finish_plot(fig, csv_name, exp_name, smoothing_id):
-    plt.xlabel("Timestep")
+def init_plot(solo):
+    if solo:
+        fig, ax = plt.subplots(1, squeeze=False)
+    else:
+        fig, ax = plt.subplots(2, 4, squeeze=False, figsize=(6*4, 6*2), sharex=True, sharey=True, dpi=200)
+        plt.tight_layout()
+        fig.subplots_adjust(wspace=0.00001, hspace=0.00001)
+    return fig, ax
 
+def get_title_and_axis_name(csv_name):
     if "Eval_" in csv_name:
         plot_name, y_axis_name = csv_name.replace("Eval_", "").replace("MultiGrid-", "").replace("-Minigrid",
                                                                                                  "").replace("-v0",
-                                                                                                             "").replace("/out.csv", "").split(
+                                                                                                             "").replace(
+            "/out.csv", "").split(
             "/")
     elif "teacher-learner" in csv_name:
         print(csv_name)
-        y_axis_name = csv_name.replace("teacher-learner_", "").replace("/Teacher/", "").replace("_", " ").replace("/out.csv", "")
+        y_axis_name = csv_name.replace("teacher-learner", "").replace("/Teacher/", "").replace("_", " ").replace(
+            "/out.csv", "")
         plot_name = y_axis_name
     else:
         plot_name = csv_name
         y_axis_name = plot_name
     plot_name = plot_name.title()
 
-    plt.title(plot_name)
+    #plt.title(plot_name)
 
     y_axis_name = {
         "solved_rate": "Solve Rate",
         "median": "Median",
         "min": "Min",
-        "shortestpathlength": "Shortest Path Length"
+        "shortestpathlength": "Shortest Path Length",
+        "shortestpathlength std": "Shortest Path Length STD"
     }.get(y_axis_name, y_axis_name)
+    if "teacher-learner" in csv_name:
+        plot_name = y_axis_name
 
-    plt.ylabel(y_axis_name)
-    plt.tight_layout()
-    plt.grid(alpha=0.3)
+    return plot_name, y_axis_name
+
+def get_cleaned_exp_name(exp_name, ax=None):
+
+    all = {"blocks", "agent", "goal"}
 
     exp_name = re.search(r"\[(.*)\]", exp_name)
     if exp_name is None:
-        exp_name = "none"
+        exp_name = "all"
     else:
         exp_name = exp_name.group(1)
         if len(exp_name.split(",")) == 3:
-            ax = plt.gca()
-            ax.get_legend().remove()
-    exp_name = f"{OUTDIR}/random_picks_{exp_name}".replace(",", "_and_")
+            if ax is not None:
+                ax.get_legend().remove()
+            exp_name = "none"
+        else:
+            intelligent_powers = all - set(exp_name.split(","))
+            exp_name = ",".join(intelligent_powers)
+    exp_name = f"principal_picks_{exp_name}".replace(",", "_and_")
+
+    return exp_name
+
+def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""):
+    plot_name, y_axis_name = get_title_and_axis_name(csv_name)
+    fig.supxlabel("Timestep")
+    fig.supylabel(y_axis_name, x=0.01)
+
+    #plt.ylabel(y_axis_name)
+    plt.grid(alpha=0.3)
+
+    exp_name = get_cleaned_exp_name(exp_name)
+    if override_path != "":
+        exp_name = override_path
+    plt.subplots_adjust(top=0.93)
+    fig.suptitle(exp_name+"\n")
+    exp_name = f"{OUTDIR}/{exp_name}"
 
     os.makedirs(exp_name, exist_ok=True)
 
-    plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.png", dpi=fig.dpi)
+    for i in range(2):
+        for j in range(4):
+            leg = axes[i,j].get_legend()
+            if leg is not None:
+                leg.remove()
+    handles, labels = axes[-1,-1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+
+    plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.pdf", dpi=fig.dpi)
+    if DEBUG:
+        plt.show()
     plt.close(fig)
 
-def just_one_plot(data, exp_name):
+def just_one_plot(ax, data, exp_name):
     x_values, y_values, y_errors, csv_name = data
 
     line_label = ""
@@ -125,7 +169,9 @@ def just_one_plot(data, exp_name):
     if "adversarial" in exp_name:
         line_label = "adversarial"
 
-    ax = sns.lineplot(x=x_values, y=y_values, label=line_label)
+    color = 'blue' if line_label == "cooperative" else "orange"
+
+    sns.lineplot(ax=ax, x=x_values, y=y_values, label=line_label, color=color)
 
     x_ticks = ((1+np.arange(30)) * 100000)[1::2]
     x_labels = list(map(lambda x: f"{str(x / 1000000)[:3]}M", x_ticks))
@@ -136,13 +182,28 @@ def just_one_plot(data, exp_name):
         ax.set_ylim([0, 1.1])
         y_ticks = np.arange(11) / 10
         ax.set_yticks(y_ticks, y_ticks)
-    #elif "path" in csv_name:
-    #    ax.set_ylim([10, 40])
-    #    y_ticks = np.arange(7) * 5 + 10
-    #    ax.set_yticks(y_ticks, y_ticks)
+    elif "path" in csv_name:
+        ax.set_ylim([12.5, 30])
+
+        steps = 1 + (30-12.5) // 2.5
+
+        y_ticks = np.arange(steps) * 2.5 + 12.5
+        ax.set_yticks(y_ticks, y_ticks)
     ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor")
     # ax.set_xticklabels(list(map(str, x_values)))
-    ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.5)
+    ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.5, color=color)
+
+    plot_name, y_axis_name = get_title_and_axis_name(csv_name)
+    plot_name = get_cleaned_exp_name(exp_name)
+
+    plot_name = plot_name.replace("_", " ").title()
+
+    ax.set_title(plot_name, fontsize=14, pad=-14)
+
+    get_cleaned_exp_name(exp_name, ax)
+
+
+    #ax.set_ylabel(y_axis_name)
 
 
 def plot(data, keys, names):
@@ -151,22 +212,13 @@ def plot(data, keys, names):
 
     for key in keys:
 
-        if "solve" in key or "path" in key:
-            pass
-        else:
-            continue
-
-        if "Eval" in key or "teacher-learner" in key:
-            pass
-        else:
-            continue
 
         #try:
         for smoothing_id in range(len(SMOOTHINGS)):
-            fig = plt.figure(figsize=(6,6))
+            fig, axes = init_plot(True)
             for dict_id, dict in enumerate(data):
                 packing = dict[key]
-                just_one_plot(data=packing[smoothing_id], exp_name=names[dict_id])
+                just_one_plot(data=packing[smoothing_id], exp_name=names[dict_id], ax=axes[0,0])
             do_finish_plot(fig=fig, csv_name=key, exp_name=names[0], smoothing_id=smoothing_id)
         #plt.show()
         #exit()
@@ -217,6 +269,21 @@ def find_all_experiment_pairs(path):
 
     return experiment_names
 
+def filter_keys(common_keys):
+    keys = []
+    for key in common_keys:
+        if "solve" in key or "path" in key:
+            pass
+        else:
+            continue
+
+        if "Eval" in key or "teacher-learner" in key:
+            pass
+        else:
+            continue
+        keys.append(key)
+    return set(keys)
+
 def find_all_experiment_paths(path):
     all_paths = run(f"find {path} -name 'out.csv'").split("\n")
     csv_paths = set(map(lambda x: "/".join(x.replace(path, "").split("/")[2:]), all_paths))
@@ -235,8 +302,9 @@ def do_mp(pair, csv_paths):
         common_keys = keys1.intersection(keys2)
     else:
         common_keys = keys1
+    common_keys = filter_keys(common_keys)
 
-    plot(result, common_keys, pair)
+    #plot(result, common_keys, pair)
 
     return result, common_keys, pair
 
@@ -266,23 +334,32 @@ if __name__ == "__main__":
     all_common_keys = temp_common_keys[0]
     for temp_common_key in temp_common_keys:
         all_common_keys = all_common_keys.intersection(temp_common_key)
+    #all_common_keys = filter_keys(all_common_keys)
 
-    indices = np.argsort(np.array(list(map(lambda xy: xy[0], exp_pairs))))
+    indices = np.argsort(np.array(list(map(lambda xy: ":".join(xy), exp_pairs))))
 
-"""
+
     for smoothing_id in range(len(SMOOTHINGS)):
         for key in all_common_keys:
             #if "Eval" and "solve" not in key:
             #    continue
             fig, axes = init_plot(False)
             for index in indices:
-                for dict_id, dict in enumerate(results[index]):
+                (dicts, _, name_pair) = results[index]
+                for dict_id, dict in enumerate(dicts):
                     packing = dict[key]
-                    just_one_plot(fig=fig, data=packing[smoothing_id], exp_name=exp_pairs[index][dict_id], subplot_x=index % 4, subplot_y=in)
-            do_finish_plot(fig=fig, csv_name=key, exp_name=names[0], smoothing_id=smoothing_id)
+
+
+                    x_axes = int(index >= 4)
+                    y_axes = index % 4
+                    just_one_plot(ax=axes[x_axes, y_axes], data=packing[smoothing_id], exp_name=name_pair[dict_id])
+
+            title = get_title_and_axis_name(key)[0]
+            title = title.replace("_", " ").title()
+            do_finish_plot(override_path=get_title_and_axis_name(key)[0], fig=fig, csv_name=key, exp_name=exp_pairs[index][0], smoothing_id=smoothing_id, axes=axes)
             #plt.show()
             #exit()
-"""
+
 """
     key2results_dict = {}
     for key in all_common_keys:
