@@ -76,7 +76,7 @@ def init_plot(solo):
     else:
         fig, ax = plt.subplots(2, 4, squeeze=False, figsize=(6*4, 6*2), sharex=True, sharey=True, dpi=200)
         plt.tight_layout()
-        fig.subplots_adjust(wspace=0.00001, hspace=0.00001)
+        fig.subplots_adjust(wspace=0.01, hspace=0.01, bottom=0.099999, left=0.07)
     return fig, ax
 
 def get_title_and_axis_name(csv_name):
@@ -126,14 +126,14 @@ def get_cleaned_exp_name(exp_name, ax=None):
         else:
             intelligent_powers = all - set(exp_name.split(","))
             exp_name = ",".join(intelligent_powers)
-    exp_name = f"principal_picks_{exp_name}".replace(",", "_and_")
+    exp_name = f"picks_{exp_name}".replace(",", "_and_")
 
     return exp_name
 
 def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""):
     plot_name, y_axis_name = get_title_and_axis_name(csv_name)
     fig.supxlabel("Timestep")
-    fig.supylabel(y_axis_name, x=0.01)
+    fig.supylabel(y_axis_name)
 
     #plt.ylabel(y_axis_name)
     plt.grid(alpha=0.3)
@@ -147,13 +147,17 @@ def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""
 
     os.makedirs(exp_name, exist_ok=True)
 
+    handles, labels = axes[0,0].get_legend_handles_labels()
     for i in range(2):
         for j in range(4):
             leg = axes[i,j].get_legend()
             if leg is not None:
                 leg.remove()
-    handles, labels = axes[-1,-1].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='upper right')
+            handles_temp, labels_temp = axes[i,j].get_legend_handles_labels()
+            if labels_temp[0] == "randomization":
+                handles.append(handles_temp[0])
+                labels.append(labels_temp[0])
+    fig.legend(handles, labels, loc='lower center', fontsize=20, bbox_to_anchor=(0.45, 0.115))
 
     plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.pdf", dpi=fig.dpi)
     if DEBUG:
@@ -169,9 +173,41 @@ def just_one_plot(ax, data, exp_name):
     if "adversarial" in exp_name:
         line_label = "adversarial"
 
-    color = 'blue' if line_label == "cooperative" else "orange"
+    my_cmap = sns.color_palette("colorblind", as_cmap=True)
+    color = my_cmap[0] if line_label == "cooperative" else my_cmap[1]
 
-    sns.lineplot(ax=ax, x=x_values, y=y_values, label=line_label, color=color)
+    plot_name = get_cleaned_exp_name(exp_name)
+    if "none" in plot_name.lower():
+        color = my_cmap[6]
+        temp_line_label = "randomization"
+        sns.lineplot(ax=ax, x=x_values, y=y_values, label=temp_line_label, color=color)
+    else:
+        sns.lineplot(ax=ax, x=x_values, y=y_values, label=line_label, color=color)
+
+    past_work = {
+        "maze": {
+            "paired": (0,0),
+            #"repaired": (0.2, 0.1),
+            #"plr": (0.3, 0.1),
+            "plr⊥": (0.6, 0.1),
+            #"plr⊥ (500M)": (0.5, 0.1)
+        },
+        "sixteen": {
+            "paired": (0.7,0.1),
+            #"repaired": (0.9, 0.1),
+            #"plr": (1, 0.0),
+            "plr⊥": (0.8, 0.1),
+            #"plr⊥ (500M)": (1, 0.0)
+        },
+        "laby": {
+            "paired": (0.3,0.1),
+            #"repaired": (0.1, 0.0),
+            #"plr": (0.3, 0.1),
+            "plr⊥": (0.5, 0.1),
+            #"plr⊥ (500M)": (0.7, 0.1)
+        }
+    }
+
 
     x_ticks = ((1+np.arange(30)) * 100000)[1::2]
     x_labels = list(map(lambda x: f"{str(x / 1000000)[:3]}M", x_ticks))
@@ -181,24 +217,34 @@ def just_one_plot(ax, data, exp_name):
     if "solve" in csv_name:
         ax.set_ylim([0, 1.1])
         y_ticks = np.arange(11) / 10
-        ax.set_yticks(y_ticks, y_ticks)
+        ax.set_yticks(y_ticks, y_ticks, fontsize=20)
     elif "path" in csv_name:
-        ax.set_ylim([12.5, 30])
+        ax.set_ylim([12.5, 32.5])
 
         steps = 1 + (30-12.5) // 2.5
 
         y_ticks = np.arange(steps) * 2.5 + 12.5
-        ax.set_yticks(y_ticks, y_ticks)
-    ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor")
+        ax.set_yticks(y_ticks, y_ticks, fontsize=20)
+    ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor", fontsize=20)
     # ax.set_xticklabels(list(map(str, x_values)))
-    ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.5, color=color)
+    ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.25, color=color)
 
-    plot_name, y_axis_name = get_title_and_axis_name(csv_name)
-    plot_name = get_cleaned_exp_name(exp_name)
+    if line_label == "cooperative":
+        for key in past_work.keys():
+            if key in csv_name.lower():
+                for old_work, (val, std) in past_work[key].items():
+                    style = "--" if old_work == "paired" else "dashdot"
+                    color = my_cmap[2] if old_work == "paired" else my_cmap[4]
+
+                    ax.axhline(val, linestyle=style, color=color, label=old_work.upper())
+                    #ax.fill_between(x_values, old_work[0])
+
+
+    #plot_name, y_axis_name = get_title_and_axis_name(csv_name)
 
     plot_name = plot_name.replace("_", " ").title()
 
-    ax.set_title(plot_name, fontsize=14, pad=-14)
+    ax.set_title(plot_name, fontsize=22, pad=-22)
 
     get_cleaned_exp_name(exp_name, ax)
 
@@ -314,8 +360,8 @@ if __name__ == "__main__":
 
     sns.set()
     sns.set_palette("colorblind")
-    matplotlib.rcParams.update({'font.size': 14})
-    csv_paths = find_all_experiment_paths(path)
+    matplotlib.rcParams.update({'font.size': 18})
+    csv_paths = filter_keys(find_all_experiment_paths(path))
     exp_pairs = find_all_experiment_pairs(path)
 
     if DEBUG:
