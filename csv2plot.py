@@ -12,6 +12,7 @@ from utils import run
 SMOOTHINGS = [0, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
 DEBUG = False
 OUTDIR = "img_out"
+EWM = True
 
 def do_csv(path, csv_paths, num_runs):
     csv_dict = {}
@@ -31,11 +32,15 @@ def do_csv(path, csv_paths, num_runs):
             for smoothing_id, smoothing in enumerate(SMOOTHINGS):
                 acc = []
                 for run_id in range(num_runs):
-                    run = frame.iloc[run_id::3,:]
+                    run = frame.iloc[run_id::num_runs,:]
                     if smoothing == 0:
                         acc.append(run['value'])
                     else:
-                        acc.append(run.ewm(alpha=(1-smoothing)).mean()['value'])
+                        acc.append(
+                            run.ewm(alpha=(1-smoothing)).mean()['value'] if EWM else
+                            run.rolling(2).mean()['value']
+                        )
+                assert len(acc) == num_runs
 
                 min_len = min(map(len, acc))
                 acc = list(map(lambda ac: ac[:min_len], acc))
@@ -112,6 +117,8 @@ def get_title_and_axis_name(csv_name):
 
 def get_cleaned_exp_name(exp_name, ax=None):
 
+    # old:
+    """
     all = {"blocks", "agent", "goal"}
 
     exp_name = re.search(r"\[(.*)\]", exp_name)
@@ -127,8 +134,31 @@ def get_cleaned_exp_name(exp_name, ax=None):
             intelligent_powers = all - set(exp_name.split(","))
             exp_name = ",".join(intelligent_powers)
     exp_name = f"picks_{exp_name}".replace(",", "_and_")
+    """
+    # new:
 
-    return exp_name
+    scheme = "Cooperative"
+    if "adversarial" in exp_name:
+        scheme = "Adversarial"
+    scheme = f"({scheme})"
+
+    string = []
+    if "icm" in exp_name:
+        if "mix" in exp_name:
+            string.append(f"ICM-Extrinsic Mix")
+        else:
+            string.append("ICM")
+    else:
+        string.append(f"Extrinsic")
+
+    other_info = []
+    if "bumps" in exp_name:
+        other_info.append("NB")
+
+    if "blocks" in exp_name:
+        other_info.append("RB")
+
+    return " ".join(string) + " " + (f'({",".join(other_info)})' if len(other_info) > 0 else '')
 
 def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""):
     plot_name, y_axis_name = get_title_and_axis_name(csv_name)
@@ -150,16 +180,21 @@ def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""
     handles, labels = axes[0,0].get_legend_handles_labels()
     for i in range(2):
         for j in range(4):
-            leg = axes[i,j].get_legend()
-            if leg is not None:
-                leg.remove()
             handles_temp, labels_temp = axes[i,j].get_legend_handles_labels()
-            if labels_temp[0] == "randomization":
+            if len(labels_temp) > 0 and labels_temp[0] == "randomization":
                 handles.append(handles_temp[0])
                 labels.append(labels_temp[0])
+            if len(labels_temp) > len(labels):   # todo temp, remove
+                handles = handles_temp
+                labels = labels_temp
+
+            leg = axes[i, j].get_legend()
+            if leg is not None:
+                leg.remove()
     fig.legend(handles, labels, loc='lower center', fontsize=20, bbox_to_anchor=(0.45, 0.115))
 
-    plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.pdf", dpi=fig.dpi)
+    # todo temp png to pdf
+    plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.png", dpi=fig.dpi)
     if DEBUG:
         plt.show()
     plt.close(fig)
@@ -243,6 +278,7 @@ def just_one_plot(ax, data, exp_name):
     #plot_name, y_axis_name = get_title_and_axis_name(csv_name)
 
     plot_name = plot_name.replace("_", " ").title()
+    plot_name = plot_name.replace("Nb", "NB").replace("Rb", "RB").replace("Icm", "ICM")
 
     ax.set_title(plot_name, fontsize=22, pad=-22)
 
@@ -299,6 +335,7 @@ def find_all_experiment_pairs(path):
 
     experiment_names = set(map(lambda x: x.replace(path, "").split("/")[1], all_paths))
 
+    num_run_matchings = dict()
     path_matchings = dict()
     for sub_paths in experiment_names:
         pattern = sub_paths.replace("cooperative", "PATTERN").replace("adversarial", "PATTERN")
@@ -306,14 +343,25 @@ def find_all_experiment_pairs(path):
             path_matchings[pattern] = []
         path_matchings[pattern].append(sub_paths)
 
-    for key, values in path_matchings.items():
-        assert len(values) == 2 or "blocks,goal,agent" in values[0]
+        df = pd.read_csv(f"{path}/{sub_paths}/Eval_MultiGrid-SixteenRooms-v0/solved_rate/out.csv")
+        df = df[df['step'] == 100000]
+        num_seeds = len(df)
+        num_run_matchings[sub_paths] = num_seeds
+
+
+    # todo
+    #for key, values in path_matchings.items():
+    #    assert len(values) == 2 or "blocks,goal,agent" in values[0]
 
     experiment_names = []
+    num_runs = []
     for pair in path_matchings.values():
         experiment_names.append(list(map(lambda x: f"{path}/{x}", pair)))
 
-    return experiment_names
+        nums = list(map(lambda x: num_run_matchings[x], pair))
+        num_runs.append(nums)
+
+    return experiment_names, num_runs
 
 def filter_keys(common_keys):
     keys = []
@@ -335,14 +383,14 @@ def find_all_experiment_paths(path):
     csv_paths = set(map(lambda x: "/".join(x.replace(path, "").split("/")[2:]), all_paths))
     return csv_paths
 
-def do_mp(pair, csv_paths):
+def do_mp(pair, csv_paths, num_runs):
     print("PAIR")
     print(pair)
 
-    result = [do_csv(pair[0], csv_paths, 3)]
+    result = [do_csv(pair[0], csv_paths, num_runs[0])]
     keys1 = set(result[0].keys())
     if len(pair) == 2:
-        result.append(do_csv(pair[1], csv_paths, 3))
+        result.append(do_csv(pair[1], csv_paths, num_runs[1]))
         keys2 = set(result[1].keys())
         uh = keys1 == keys2  # if we dont do this, sets are counted as empty... fuck python
         common_keys = keys1.intersection(keys2)
@@ -362,7 +410,7 @@ if __name__ == "__main__":
     sns.set_palette("colorblind")
     matplotlib.rcParams.update({'font.size': 18})
     csv_paths = filter_keys(find_all_experiment_paths(path))
-    exp_pairs = find_all_experiment_pairs(path)
+    exp_pairs, num_runs = find_all_experiment_pairs(path)
 
     if DEBUG:
         do_mp(exp_pairs[0], csv_paths)
@@ -370,7 +418,7 @@ if __name__ == "__main__":
 
     import multiprocessing as mp
     pool = mp.Pool()
-    results = pool.starmap(do_mp, zip(exp_pairs, [csv_paths] * len(exp_pairs)))
+    results = pool.starmap(do_mp, zip(exp_pairs, [csv_paths] * len(exp_pairs), num_runs))
     pool.close()
     pool.join()
 

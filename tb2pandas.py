@@ -104,7 +104,7 @@ def extract_experiments_mp(paths, names):
     pool.join()
 
 if __name__ == "__main__":
-    dir_path = "/home/velythyl/Desktop/WORKDIR/last_runs/last_coop_agent_run"
+    dir_path = "/home/velythyl/Desktop/tb-extract/all"
 
     experiments_names = os.listdir(dir_path)
     experiment_paths = map(lambda x: f"{dir_path}/{x}", experiments_names)
