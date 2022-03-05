@@ -9,7 +9,9 @@ import re
 
 from utils import run
 
-SMOOTHINGS = [0, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
+SMOOTHINGS = [0,
+              #0.5, 0.6, 0.7, 0.8,
+              0.9, 0.95, 0.59, 0.69, 0.79, 0.89]
 DEBUG = False
 OUTDIR = "img_out"
 EWM = True
@@ -30,6 +32,16 @@ def do_csv(path, csv_paths, num_runs):
 
             x_y_e = []
             for smoothing_id, smoothing in enumerate(SMOOTHINGS):
+                if str(smoothing).endswith("9") and "solve" in csv:
+                    run = frame.groupby('step').mean()
+                    run = run.ewm(alpha=(1-smoothing))
+
+                    y_values = run.mean()['value']
+                    y_errors = run.std()['value']
+                    print(y_values)
+                    x_y_e.append((x_values, y_values, y_errors, name))
+                    continue
+
                 acc = []
                 for run_id in range(num_runs):
                     run = frame.iloc[run_id::num_runs,:]
@@ -81,7 +93,7 @@ def init_plot(solo):
     else:
         fig, ax = plt.subplots(2, 4, squeeze=False, figsize=(6*4, 6*2), sharex=True, sharey=True, dpi=200)
         plt.tight_layout()
-        fig.subplots_adjust(wspace=0.01, hspace=0.01, bottom=0.099999, left=0.07)
+        #fig.subplots_adjust(wspace=0.01, hspace=0.01, bottom=0.099999, left=0.07)
     return fig, ax
 
 def get_title_and_axis_name(csv_name):
@@ -108,7 +120,8 @@ def get_title_and_axis_name(csv_name):
         "median": "Median",
         "min": "Min",
         "shortestpathlength": "Shortest Path Length",
-        "shortestpathlength std": "Shortest Path Length STD"
+        "shortestpathlength std": "Shortest Path Length STD",
+        "n clutter placed": "Number of Blocks Placed"
     }.get(y_axis_name, y_axis_name)
     if "teacher-learner" in csv_name:
         plot_name = y_axis_name
@@ -160,7 +173,7 @@ def get_cleaned_exp_name(exp_name, ax=None):
 
     return " ".join(string) + " " + (f'({",".join(other_info)})' if len(other_info) > 0 else '')
 
-def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""):
+def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path="", just_one=False):
     plot_name, y_axis_name = get_title_and_axis_name(csv_name)
     fig.supxlabel("Timestep")
     fig.supylabel(y_axis_name)
@@ -172,34 +185,40 @@ def do_finish_plot(fig, axes, csv_name, exp_name, smoothing_id, override_path=""
     if override_path != "":
         exp_name = override_path
     plt.subplots_adjust(top=0.93)
-    fig.suptitle(exp_name+"\n")
+    fig.suptitle(exp_name + "\n")
     exp_name = f"{OUTDIR}/{exp_name}"
 
     os.makedirs(exp_name, exist_ok=True)
 
     handles, labels = axes[0,0].get_legend_handles_labels()
-    for i in range(2):
-        for j in range(4):
-            handles_temp, labels_temp = axes[i,j].get_legend_handles_labels()
-            if len(labels_temp) > 0 and labels_temp[0] == "randomization":
-                handles.append(handles_temp[0])
-                labels.append(labels_temp[0])
-            if len(labels_temp) > len(labels):   # todo temp, remove
-                handles = handles_temp
-                labels = labels_temp
 
-            leg = axes[i, j].get_legend()
-            if leg is not None:
-                leg.remove()
-    fig.legend(handles, labels, loc='lower center', fontsize=20, bbox_to_anchor=(0.45, 0.115))
+    if just_one:
+        added_indep_once = False
+        for i in range(2):
+            for j in range(4):
+                handles_temp, labels_temp = axes[i,j].get_legend_handles_labels()
+                if len(labels_temp) > 0 and labels_temp[0] == "independent" and not added_indep_once:
+                    handles.append(handles_temp[0])
+                    labels.append(labels_temp[0])
+                    added_indep_once = True
+                if len(labels_temp) > len(labels):   # todo temp, remove
+                    handles = handles_temp
+                    labels = labels_temp
 
+                leg = axes[i, j].get_legend()
+                if leg is not None:
+                    leg.remove()
+        if "clutter" not in csv_name:
+            fig.legend(handles, labels, loc='lower center', fontsize=20, bbox_to_anchor=(0.38, 0.26))
+        else:
+            fig.legend(handles, labels, loc='lower center', fontsize=20, bbox_to_anchor=(0.38, 0.12))
     # todo temp png to pdf
-    plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.png", dpi=fig.dpi)
+    plt.savefig(f"{exp_name}/{plot_name}_{y_axis_name}_{SMOOTHINGS[smoothing_id]}.pdf", dpi=fig.dpi)
     if DEBUG:
         plt.show()
     plt.close(fig)
 
-def just_one_plot(ax, data, exp_name):
+def just_one_plot(ax, data, exp_name, just_one=False):
     x_values, y_values, y_errors, csv_name = data
 
     line_label = ""
@@ -212,9 +231,9 @@ def just_one_plot(ax, data, exp_name):
     color = my_cmap[0] if line_label == "cooperative" else my_cmap[1]
 
     plot_name = get_cleaned_exp_name(exp_name)
-    if "none" in plot_name.lower():
+    if "icm" in plot_name.lower() and "mix" not in plot_name.lower():
         color = my_cmap[6]
-        temp_line_label = "randomization"
+        temp_line_label = "independent"
         sns.lineplot(ax=ax, x=x_values, y=y_values, label=temp_line_label, color=color)
     else:
         sns.lineplot(ax=ax, x=x_values, y=y_values, label=line_label, color=color)
@@ -252,40 +271,66 @@ def just_one_plot(ax, data, exp_name):
     if "solve" in csv_name:
         ax.set_ylim([0, 1.1])
         y_ticks = np.arange(11) / 10
-        ax.set_yticks(y_ticks, y_ticks, fontsize=20)
+        ax.set_yticks(y_ticks, y_ticks, fontsize=14)    # was 20
     elif "path" in csv_name:
         ax.set_ylim([12.5, 32.5])
 
         steps = 1 + (30-12.5) // 2.5
 
         y_ticks = np.arange(steps) * 2.5 + 12.5
-        ax.set_yticks(y_ticks, y_ticks, fontsize=20)
-    ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor", fontsize=20)
+        ax.set_yticks(y_ticks, y_ticks, fontsize=14)    # was 20
+    elif "clutter" in csv_name:
+        LOW = 37.5
+        HIG = 43.5
+        STEP = 0.5
+        ax.set_ylim([LOW, HIG+STEP])
+
+        steps = 1 + abs((LOW-HIG) // STEP)
+
+        y_ticks = np.arange(steps) * STEP + LOW
+        ax.set_yticks(y_ticks, y_ticks, fontsize=14)    # was 20
+    ax.set_xticks(x_ticks, x_labels, ha='right', rotation=45, rotation_mode="anchor", fontsize=14)
     # ax.set_xticklabels(list(map(str, x_values)))
     ax.fill_between(x_values, y_values - y_errors, y_values + y_errors, alpha=0.25, color=color)
 
+
     if line_label == "cooperative":
+        doable = False
         for key in past_work.keys():
             if key in csv_name.lower():
-                for old_work, (val, std) in past_work[key].items():
-                    style = "--" if old_work == "paired" else "dashdot"
-                    color = my_cmap[2] if old_work == "paired" else my_cmap[4]
+                doable = True
 
-                    ax.axhline(val, linestyle=style, color=color, label=old_work.upper())
-                    #ax.fill_between(x_values, old_work[0])
+        if "nb" in plot_name.lower() and doable:
+            style = "--"
+            color = my_cmap[2]
 
+            ax.axhline(0.005, linestyle=style, color=color, label="paired".upper())
+            # ax.fill_between(x_values, old_work[0])
+        else:
+            for key in past_work.keys():
+                if key in csv_name.lower():
+                    for old_work, (val, std) in past_work[key].items():
+                        style = "--" if old_work == "paired" else "dashdot"
+                        color = my_cmap[2] if old_work == "paired" else my_cmap[4]
+
+                        if val == 0:
+                            val = 0.005
+
+                        ax.axhline(val, linestyle=style, color=color, label=old_work.upper())
+                        #ax.fill_between(x_values, old_work[0])
 
     #plot_name, y_axis_name = get_title_and_axis_name(csv_name)
 
     plot_name = plot_name.replace("_", " ").title()
     plot_name = plot_name.replace("Nb", "NB").replace("Rb", "RB").replace("Icm", "ICM")
 
-    ax.set_title(plot_name, fontsize=22, pad=-22)
+    if not just_one:
+        ax.set_title(plot_name, fontsize=22, pad=-22)
 
     get_cleaned_exp_name(exp_name, ax)
 
 
-    #ax.set_ylabel(y_axis_name)
+    ax.set_ylabel('')
 
 
 def plot(data, keys, names):
@@ -348,14 +393,23 @@ def find_all_experiment_pairs(path):
         num_seeds = len(df)
         num_run_matchings[sub_paths] = num_seeds
 
-
+    pairs = []
+    pairs_nb = []
+    for key in path_matchings.keys():
+        pair = sorted(path_matchings[key])
+        if "bumps" in pair[0]:
+            pairs_nb.append(pair)
+        else:
+            pairs.append(pair)
+    pairs = sorted(pairs, key=lambda x: x[0])
+    pairs_nb = sorted(pairs_nb, key=lambda x: x[0])
     # todo
     #for key, values in path_matchings.items():
     #    assert len(values) == 2 or "blocks,goal,agent" in values[0]
 
     experiment_names = []
     num_runs = []
-    for pair in path_matchings.values():
+    for pair in (pairs + pairs_nb):
         experiment_names.append(list(map(lambda x: f"{path}/{x}", pair)))
 
         nums = list(map(lambda x: num_run_matchings[x], pair))
@@ -366,7 +420,7 @@ def find_all_experiment_pairs(path):
 def filter_keys(common_keys):
     keys = []
     for key in common_keys:
-        if "solve" in key or "path" in key:
+        if "solve" in key or "path" in key or "clutter" in key:
             pass
         else:
             continue
@@ -408,7 +462,7 @@ if __name__ == "__main__":
 
     sns.set()
     sns.set_palette("colorblind")
-    matplotlib.rcParams.update({'font.size': 18})
+    matplotlib.rcParams.update({'font.size': 14})   # was 18
     csv_paths = filter_keys(find_all_experiment_paths(path))
     exp_pairs, num_runs = find_all_experiment_pairs(path)
 
@@ -430,19 +484,28 @@ if __name__ == "__main__":
         all_common_keys = all_common_keys.intersection(temp_common_key)
     #all_common_keys = filter_keys(all_common_keys)
 
-    indices = np.argsort(np.array(list(map(lambda xy: ":".join(xy), exp_pairs))))
+    #nb_indices = []
+    #other_indices = []
+    #for i, pair in enumerate(exp_pairs):
+    #    if
+    #indices = np.argsort(np.array(list(
+    #    map(lambda x: ("NB"+x) if "nb" in x.lower() else x,
+    #        map(lambda xy: ":".join(xy), exp_pairs)
+    #    )
+    #)))
+    indices = np.arange(len(results))
 
 
     for smoothing_id in range(len(SMOOTHINGS)):
         for key in all_common_keys:
             #if "Eval" and "solve" not in key:
             #    continue
+            """
             fig, axes = init_plot(False)
             for index in indices:
                 (dicts, _, name_pair) = results[index]
                 for dict_id, dict in enumerate(dicts):
                     packing = dict[key]
-
 
                     x_axes = int(index >= 4)
                     y_axes = index % 4
@@ -451,6 +514,26 @@ if __name__ == "__main__":
             title = get_title_and_axis_name(key)[0]
             title = title.replace("_", " ").title()
             do_finish_plot(override_path=get_title_and_axis_name(key)[0], fig=fig, csv_name=key, exp_name=exp_pairs[index][0], smoothing_id=smoothing_id, axes=axes)
+            """
+
+            for index in indices:
+                (dicts, _, name_pair) = results[index]
+
+                if not ("bumps" and "blocks" in name_pair[0]):
+                    continue
+
+                if not ("maze" or "laby" or "sixte" in key.lower()):
+                    continue
+
+                fig, axes = init_plot(True)
+                for dict_id, dict in enumerate(dicts):
+                    packing = dict[key]
+
+                    just_one_plot(ax=axes[0,0], data=packing[smoothing_id], exp_name=name_pair[dict_id], just_one=True)
+
+                title = get_title_and_axis_name(key)[0]
+                title = title.replace("_", " ").title()
+                do_finish_plot(override_path=get_title_and_axis_name(key)[0], fig=fig, csv_name=key, exp_name=exp_pairs[index][0], smoothing_id=smoothing_id, axes=axes)
             #plt.show()
             #exit()
 
